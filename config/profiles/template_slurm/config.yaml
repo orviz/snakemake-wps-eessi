@@ -1,0 +1,27 @@
+# ==============================================================================
+# SNAKEMAKE SLURM PROFILE TEMPLATE
+# ==============================================================================
+# Instructions: 
+# 1. Copy this folder to a custom name (e.g., config/profiles/altamira)
+# 2. Replace the <PLACEHOLDERS> below with your cluster settings.
+# ==============================================================================
+
+# Target execution framework for Snakemake 8+
+executor: slurm
+
+# Global defaults applied to lightweight rules (Phases 1 & 2)
+default-resources:
+  slurm_partition: "<YOUR_SLURM_PARTITION>"
+  slurm_account: "<YOUR_SLURM_ACCOUNT>"
+  runtime: 60
+
+# Cluster overrides for the heavy-duty WRF compilation rule (Phase 3 & 4)
+set-resources:
+  wrf_core_libraries_checkpoint:
+    slurm_partition: "<YOUR_SLURM_PARTITION>"
+
+# Snakemake orchestrator pacing parameters
+restart-times: 1                # Auto-retry failed cluster jobs once (e.g., node eviction)
+max-jobs-per-second: 2          # Prevents throttling the Slurm controller API
+max-status-checks-per-second: 10
+local-cores: 1

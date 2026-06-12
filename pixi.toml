@@ -1,0 +1,20 @@
+[workspace]
+name = "snakemake-wps-eessi"
+version = "0.1.0"
+description = "Workflow to compile WPS over EESSI using Snakemake"
+authors = ["Pablo Orviz <orviz@ifca.es>", "Valvanuz Fernández <valvanuz.fernandez@unican.es"]
+channels = ["conda-forge", "bioconda"] # Specific channels for HPC
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.10"
+conda = "*"
+
+# --- SnakeMake ecosystem 8+ ---
+snakemake = ">=8.0"
+snakemake-executor-plugin-slurm = "*"
+
+[tasks]
+dry-run   = "snakemake --dry-run --profile"
+run-slurm = "snakemake --profile"
+run-local = "snakemake"

@@ -1,0 +1,9 @@
+.snakemake/
+.pixi/
+logs/
+results/
+
+# --- Slurm Private Profiles ---
+# Ignore all custom profiles but keep the template folder visible in Git
+config/profiles/*
+!config/profiles/template_slurm/

@@ -1,0 +1,11 @@
+# WPS configuration for WRF compilation and execution
+wps_version: "v4.6.0"
+wps_configure_option: "3" # foss-dmpar option (GRIB2 enabled)
+
+# Local installation path
+install_root: "/home/user/sw"
+
+# EESSI (CVMFS) environment settings for WRF compilation and execution
+eessi_init_script: "/cvmfs/software.eessi.io/versions/2025.06/init/bash"
+eessi_wrf_module: "WRF/4.6.1-foss-2024a-dmpar"
+eessi_wrf_dir: "/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/cascadelake/software/WRF/4.6.1-foss-2024a-dmpar/WRFV4.6.1"

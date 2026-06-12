@@ -1,0 +1,131 @@
+# workflow/Snakefile
+import os
+
+configfile: "config/config.yaml"
+
+# Dynamic variables from config.yaml
+INSTALL_ROOT = config["install_root"]
+WPS_VERSION = config["wps_version"]
+EESSI_INIT = config["eessi_init_script"]
+WRF_MODULE = config["eessi_wrf_module"]
+
+# Jasper and WPS source directories
+JASPER_DIR = os.path.join(INSTALL_ROOT, "jasper-1.900.1")
+WPS_SRC_DIR = os.path.join(workflow.basedir, "..", "src", "WPS")
+
+rule all:
+    input:
+        f"logs/wps_installation_{WPS_VERSION}.done"
+
+# -----------------------------------------------------------------------------
+# RULE 1: Jasper installation from source
+# -----------------------------------------------------------------------------
+rule install_jasper:
+    """Download, configure and compile Jasper."""
+    output:
+        lib = os.path.join(JASPER_DIR, "lib", "libjasper.a"),
+        inc = os.path.join(JASPER_DIR, "include", "jasper", "jasper.h")
+    log:
+        "logs/install_jasper.log"
+    shell:
+        """
+        mkdir -p src/jasper_build && cd src/jasper_build
+
+        wget --quiet https://www2.mmm.ucar.edu/wrf/OnLineTutorial/compile_tutorial/tar_files/jasper-1.900.1.tar.gz
+        tar -xvzf jasper-1.900.1.tar.gz
+        cd jasper-1.900.1
+        
+        ./configure --prefix={JASPER_DIR} >> ../../../{log} 2>&1
+        make >> ../../../{log} 2>&1
+        make install >> ../../../{log} 2>&1
+        
+        # Cleanup
+        cd ../../..
+        rm -rf src/jasper_build
+        """
+
+# -----------------------------------------------------------------------------
+# RULE 2: Cloning the official WPS repository
+# -----------------------------------------------------------------------------
+rule clone_wps:
+    """Clone the specific tag of the WPS model."""
+    output:
+        config_script = os.path.join(WPS_SRC_DIR, "configure")
+    log:
+        "logs/clone_wps.log"
+    shell:
+        """
+        mkdir -p src
+        git clone https://github.com/wrf-model/WPS.git {WPS_SRC_DIR} > {log} 2>&1
+        cd {WPS_SRC_DIR}
+        git checkout {WPS_VERSION} >> ../../{log} 2>&1
+        """
+
+# -----------------------------------------------------------------------------
+# RULE 3: WPS configuration injecting the EESSI environment
+# -----------------------------------------------------------------------------
+rule configure_wps:
+    """Run the WPS ./configure script loading the CVMFS (EESSI) variables."""
+    input:
+        config_script = os.path.join(WPS_SRC_DIR, "configure"),
+        jasper_lib = os.path.join(JASPER_DIR, "lib", "libjasper.a")
+    output:
+        make_config = os.path.join(WPS_SRC_DIR, "configure.wps")
+    log:
+        "logs/configure_wps.log"
+    shell:
+        """
+        # 1. Load EESSI and NetCDF dependencies from the toolchain
+        source {config[eessi_init_script]}
+        module load {WRF_MODULE}
+        
+        export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:${{LD_LIBRARY_PATH:-}}
+        export JASPERLIB={JASPER_DIR}/lib
+        export JASPERINC={JASPER_DIR}/include
+        export WRF_DIR={config[eessi_wrf_dir]}
+        
+        # 2. Configue WPS with selected options (GRIB2 enabled) and capture the output
+        cd {WPS_SRC_DIR}
+        ./clean -a > /dev/null 2>&1
+        echo "{config[wps_configure_option]}" | ./configure > ../../{log} 2>&1
+        """
+
+# -----------------------------------------------------------------------------
+# RULE 4: Final compilation of the geographic and meteorological binaries
+# -----------------------------------------------------------------------------
+rule compile_wps:
+    """Launch the WPS make and check the success of the 3 main executables."""
+    input:
+        make_config = os.path.join(WPS_SRC_DIR, "configure.wps")
+    output:
+        geogrid = os.path.join(WPS_SRC_DIR, "geogrid.exe"),
+        ungrib = os.path.join(WPS_SRC_DIR, "ungrib.exe"),
+        metgrid = os.path.join(WPS_SRC_DIR, "metgrid.exe"),
+        final_flag = f"logs/wps_installation_{WPS_VERSION}.done"
+    log:
+        "logs/compile_wps.log"
+    threads: 8
+    shell:
+        """
+        source {config[eessi_init_script]}
+        module load {WRF_MODULE}
+        
+        # Mitigación del bug de desbordamiento de memoria de OpenBLAS
+        export OPENBLAS_NUM_THREADS=1
+        
+        export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:{JASPER_DIR}/lib:$LD_LIBRARY_PATH
+        export JASPERLIB={JASPER_DIR}/lib
+        export JASPERINC={JASPER_DIR}/include
+        export WRF_DIR={config[eessi_wrf_dir]}
+        
+        cd {WPS_SRC_DIR}
+        ./compile > ../../{log} 2>&1
+        
+        # Validate the physical success and sign the pipeline
+        if [ -f "geogrid.exe" ] && [ -f "ungrib.exe" ] && [ -f "metgrid.exe" ]; then
+            touch ../../{output.final_flag}
+        else
+            echo "❌ Error: Compilation failed. Check logs/compile_wps.log" >&2
+            exit 1
+        fi
+        """
