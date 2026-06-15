@@ -75,19 +75,22 @@ rule configure_wps:
         "logs/configure_wps.log"
     shell:
         """
-        # 1. Load EESSI and NetCDF dependencies from the toolchain
-        source {config[eessi_init_script]}
-        module load {WRF_MODULE}
-        
-        export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:${{LD_LIBRARY_PATH:-}}
-        export JASPERLIB={JASPER_DIR}/lib
-        export JASPERINC={JASPER_DIR}/include
-        export WRF_DIR={config[eessi_wrf_dir]}
-        
-        # 2. Configue WPS with selected options (GRIB2 enabled) and capture the output
-        cd {WPS_SRC_DIR}
-        ./clean -a > /dev/null 2>&1
-        echo "{config[wps_configure_option]}" | ./configure > ../../{log} 2>&1
+        # Clean sub-shell inheriting PATH for compiler calls:q
+        env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
+            # 1. Load EESSI and NetCDF dependencies from the toolchain
+            source {config[eessi_init_script]}
+            module load {WRF_MODULE}
+            
+            export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:${{LD_LIBRARY_PATH:-}}
+            export JASPERLIB={JASPER_DIR}/lib
+            export JASPERINC={JASPER_DIR}/include
+            export WRF_DIR={config[eessi_wrf_dir]}
+            
+            # 2. Configue WPS with selected options (GRIB2 enabled) and capture the output
+            cd {WPS_SRC_DIR}
+            ./clean -a > /dev/null 2>&1
+            echo "{config[wps_configure_option]}" | ./configure > ../../{log} 2>&1
+        "
         """
 
 # -----------------------------------------------------------------------------
@@ -107,25 +110,32 @@ rule compile_wps:
     threads: 8
     shell:
         """
-        source {config[eessi_init_script]}
-        module load {WRF_MODULE}
-        
-        # Mitigación del bug de desbordamiento de memoria de OpenBLAS
-        export OPENBLAS_NUM_THREADS=1
-        
-        export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:{JASPER_DIR}/lib:$LD_LIBRARY_PATH
-        export JASPERLIB={JASPER_DIR}/lib
-        export JASPERINC={JASPER_DIR}/include
-        export WRF_DIR={config[eessi_wrf_dir]}
-        
-        cd {WPS_SRC_DIR}
-        ./compile > ../../{log} 2>&1
-        
-        # Validate the physical success and sign the pipeline
-        if [ -f "geogrid.exe" ] && [ -f "ungrib.exe" ] && [ -f "metgrid.exe" ]; then
-            touch ../../{output.final_flag}
-        else
-            echo "❌ Error: Compilation failed. Check logs/compile_wps.log" >&2
-            exit 1
-        fi
+        PIXI_BIN_DIR=$(pwd)/.pixi/envs/default/bin
+
+        # Clean sub-shell inheriting PATH for compiler calls
+        env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
+            set +u
+            source {config[eessi_init_script]}
+            module load {WRF_MODULE}
+            set -u
+            
+            # OpenBLAS can cause issues with WPS compilation, so we set it to use a single thread
+            export OPENBLAS_NUM_THREADS=1
+            
+            export LD_LIBRARY_PATH=$$NETCDFF/lib:$$NETCDF_C/lib:{JASPER_DIR}/lib:$${{LD_LIBRARY_PATH:-}}
+            export JASPERLIB={JASPER_DIR}/lib
+            export JASPERINC={JASPER_DIR}/include
+            export WRF_DIR={config[eessi_wrf_dir]}
+            
+            cd {WPS_SRC_DIR}
+            tcsh ./compile > ../../{log} 2>&1
+            
+            # Validate the physical success and sign the pipeline
+            if [ -f "geogrid.exe" ] && [ -f "ungrib.exe" ] && [ -f "metgrid.exe" ]; then
+                touch ../../{output.final_flag}
+            else
+                echo "Error: Compilation failed. Check logs/compile_wps.log" >&2
+                exit 1
+            fi
+        "
         """
