@@ -8,6 +8,8 @@ INSTALL_ROOT = config["install_root"]
 WPS_VERSION = config["wps_version"]
 EESSI_INIT = config["eessi_init_script"]
 WRF_MODULE = config["eessi_wrf_module"]
+WRF_DIR = config["eessi_wrf_dir"]
+WPS_CONFIGURE_OPTION = config["wps_configure_option"]
 
 # Jasper and WPS source directories
 JASPER_DIR = os.path.join(INSTALL_ROOT, "jasper-1.900.1")
@@ -78,18 +80,18 @@ rule configure_wps:
         # Clean sub-shell inheriting PATH for compiler calls:q
         env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
             # 1. Load EESSI and NetCDF dependencies from the toolchain
-            source {config[eessi_init_script]}
+            source {EESSI_INIT}
             module load {WRF_MODULE}
             
             export LD_LIBRARY_PATH=$$NETCDFF/lib:$$NETCDF_C/lib:$${{LD_LIBRARY_PATH:-}}
             export JASPERLIB={JASPER_DIR}/lib
             export JASPERINC={JASPER_DIR}/include
-            export WRF_DIR={config[eessi_wrf_dir]}
+            export WRF_DIR={WRF_DIR}
             
             # 2. Configue WPS with selected options (GRIB2 enabled) and capture the output
             cd {WPS_SRC_DIR}
             ./clean -a > /dev/null 2>&1
-            echo "{config[wps_configure_option]}" | ./configure > ../../{log} 2>&1
+            echo "{WPS_CONFIGURE_OPTION}" | ./configure > ../../{log} 2>&1
         "
         """
 
@@ -114,7 +116,7 @@ rule compile_wps:
 
         # Clean sub-shell inheriting PATH for compiler calls
         env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
-            source {config[eessi_init_script]}
+            source {EESSI_INIT}
             module load {WRF_MODULE}
             
             # OpenBLAS can cause issues with WPS compilation, so we set it to use a single thread
@@ -123,7 +125,7 @@ rule compile_wps:
             export LD_LIBRARY_PATH=$$NETCDFF/lib:$$NETCDF_C/lib:{JASPER_DIR}/lib:$${{LD_LIBRARY_PATH:-}}
             export JASPERLIB={JASPER_DIR}/lib
             export JASPERINC={JASPER_DIR}/include
-            export WRF_DIR={config[eessi_wrf_dir]}
+            export WRF_DIR={WRF_DIR}
             
             cd {WPS_SRC_DIR}
             tcsh ./compile > ../../{log} 2>&1
