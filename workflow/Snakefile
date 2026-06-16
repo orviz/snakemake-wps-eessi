@@ -141,6 +141,8 @@ rule compile_wps:
 
         # Clean sub-shell inheriting PATH for compiler calls
         env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
+            exec >> {log} 2>&1
+
             source {params.eessi_init}
             module load {params.wrf_module}
 
