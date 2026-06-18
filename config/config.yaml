@@ -1,13 +1,20 @@
-# WPS configuration for WRF compilation and execution
-wps_version: "v4.6.0"
-wps_configure_option: "3" # foss-dmpar option (GRIB2 enabled)
+# ==================
+# EESSI & EASYBUILD
+# ==================
 
-# Local installation path
-install_root: "/home/user/sw/WPS-v4.6.0"
-jasper_version: "1.900.1"
-jasper_download_url: "https://www2.mmm.ucar.edu/wrf/OnLineTutorial/compile_tutorial/tar_files/jasper-1.900.1.tar.gz"
-
-# EESSI (CVMFS) environment settings for WRF compilation and execution
+# Absolute path to the EESSI initialization script.
 eessi_init_script: "/cvmfs/software.eessi.io/versions/2025.06/init/bash"
-eessi_wrf_module: "WRF/4.6.1-foss-2024a-dmpar"
-eessi_wrf_dir: "/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/cascadelake/software/WRF/4.6.1-foss-2024a-dmpar/WRFV4.6.1"
+
+# Path to the EasyBuild recipe (EasyConfig) file for WPS.
+wps_easyconfig_path: "config/WPS-4.6.0-custom.eb"
+
+# -----------------------------------------------------------------------------
+# GIT SOURCE CONTROL PARAMETERS (For Custom Modifications)
+# -----------------------------------------------------------------------------
+# URL of the GitHub repository containing WPS (official or your custom fork).
+# Default official: "https://github.com/wrf-model/WPS"
+wps_git_repo: "https://github.com/wrf-model/WPS"
+
+# The specific version, tag, branch, or commit hash you want to compile.
+# Examples: "v4.6.0", "my-physics-patch-branch", "a1b2c3d4"
+wps_git_version: "v4.6.0-patch1"

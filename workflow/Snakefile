@@ -1,172 +1,56 @@
-# workflow/Snakefile
 import os
 
+# Load the user-defined configuration file
 configfile: "config/config.yaml"
 
-# Dynamic variables from config.yaml
-INSTALL_ROOT = config["install_root"]
-WPS_VERSION = config["wps_version"]
-
-# Jasper and WPS source directories
-JASPER_VERSION = config.get("jasper_version", "1.900.1")
-JASPER_DOWNLOAD_URL = config.get(
-    "jasper_download_url",
-    f"https://www2.mmm.ucar.edu/wrf/OnLineTutorial/compile_tutorial/tar_files/jasper-{JASPER_VERSION}.tar.gz"
-)
-JASPER_DIR = os.path.join(INSTALL_ROOT, f"jasper-{JASPER_VERSION}")
-WPS_SRC_DIR = os.path.join(workflow.basedir, "..", "src", "WPS")
-
-# Common rule parameters
-EESSI_ENV_PARAMS = {
-    "eessi_init": config["eessi_init_script"],
-    "wrf_module": config["eessi_wrf_module"],
-    "wrf_dir": config["eessi_wrf_dir"],
-    "config_option": config["wps_configure_option"],
-    "wps_version": WPS_VERSION
-}
+# Retrieve pipeline parameters from the configuration file
+EESSI_INIT = config.get("eessi_init_script", "/cvmfs/software.eessi.io/versions/latest/init/bash")
+WPS_EB_CONFIG = config.get("wps_easyconfig_path", "config/WPS-4.6.0-custom.eb")
+WPS_GIT_REPO = config.get("wps_git_repo", "https://github.com")
+WPS_GIT_VERSION = config.get("wps_git_version", "v4.6.0")
 
 rule all:
     input:
-        f"logs/wps_installation_{WPS_VERSION}.done"
+        "bin/wps_compilation.done"
 
-# -----------------------------------------------------------------------------
-# RULE 1: Jasper installation from source
-# -----------------------------------------------------------------------------
-rule install_jasper:
-    """Download, configure and compile Jasper."""
+# =========================================================================
+# RULE: COMPILE WPS VIA EESSI & EASYBUILD (GIT DRIVEN)
+# =========================================================================
+# This rule triggers EasyBuild on the HPC cluster using the EESSI stack.
+# It injects the targeted Git repository and version tag from the config
+# straight into the EasyConfig builder environment.
+# =========================================================================
+rule compile_wps_hpc:
+    input:
+        # Track the EasyConfig recipe file. If the recipe changes, recompile.
+        eb_recipe = WPS_EB_CONFIG
     output:
-        lib = os.path.join(JASPER_DIR, "lib", "libjasper.a"),
-        inc = os.path.join(JASPER_DIR, "include", "jasper", "jasper.h")
-    log:
-        "logs/install_jasper.log"
-    params:
-        download_url = JASPER_DOWNLOAD_URL,
-        version = JASPER_VERSION,
-        # Infer prefix dinamically from the output path
-        prefix = lambda wildcards, output: os.path.dirname(os.path.dirname(output.lib))
-    shadow: "minimal"
+        marker = "bin/wps_compilation.done"
     shell:
         """
-        exec >> {log} 2>&1 # Redirect all output to log file
+        echo "[Snakemake] Targeting HPC Environment via EESSI..."
 
-        wget --quiet {params.download_url}
-        tar -xvzf jasper-{params.version}.tar.gz
-        cd jasper-{params.version}
+        # 1. Initialize EESSI stack via the parameterized initialization script
+        if [ -f "{EESSI_INIT}" ]; then
+            source {EESSI_INIT}
+        else
+            echo "[Snakemake Error] EESSI initialization script not found at: {EESSI_INIT}"
+            exit 1
+        fi
         
-        ./configure --prefix={params.prefix}
-        make
-        make install
-        """
+        # 2. Load the official extension tool which safely configures EasyBuild on top of EESSI
+        module load EESSI-extend
 
-# -----------------------------------------------------------------------------
-# RULE 2: Cloning the official WPS repository
-# -----------------------------------------------------------------------------
-rule clone_wps:
-    """Clone the specific tag of the WPS model."""
-    output:
-        config_script = os.path.join(WPS_SRC_DIR, "configure")
-    log:
-        "logs/clone_wps.log"
-    params:
-        **EESSI_ENV_PARAMS,
-        src_dir = lambda wildcards, output: os.path.dirname(output.config_script)
-    shell:
-        """
-        exec > {log} 2>&1
-        mkdir -p "$(dirname {params.src_dir})"
-        git clone https://github.com/wrf-model/WPS.git {params.src_dir}
-        cd {params.src_dir}
-        git checkout {params.version}
-        """
+        # 3. Export Git parameters into the environment for EasyBuild to read them
+        export WPS_GIT_REPO="{WPS_GIT_REPO}"
+        export WPS_GIT_VERSION="{WPS_GIT_VERSION}"
 
-# -----------------------------------------------------------------------------
-# RULE 3: WPS configuration injecting the EESSI environment
-# -----------------------------------------------------------------------------
-rule configure_wps:
-    """Run the WPS ./configure script loading the CVMFS (EESSI) variables."""
-    input:
-        config_script = os.path.join(WPS_SRC_DIR, "configure"),
-        jasper_lib = os.path.join(JASPER_DIR, "lib", "libjasper.a")
-    output:
-        make_config = os.path.join(WPS_SRC_DIR, "configure.wps")
-    log:
-        "logs/configure_wps.log"
-    params:
-        **EESSI_ENV_PARAMS,
-        src_dir = lambda wildcards, output: os.path.dirname(output.make_config),
-        jasper_dir = lambda wildcards, input: os.path.dirname(os.path.dirname(input.jasper_lib))
-    shell:
-        """
-        # Clean sub-shell inheriting PATH for compiler calls:q
-        env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
-            exec >> {log} 2>&1
+        echo "[Snakemake] Building WPS from Repo: $WPS_GIT_REPO ($WPS_GIT_VERSION)"
+        
+        # 4. Invoke EasyBuild. It will natively clone the code and handle all dependencies
+        eb {input.eb_recipe} --robot
 
-            # 1. Load EESSI and NetCDF dependencies from the toolchain
-            source {params.eessi_init}
-            module load {params.wrf_module}
-            
-            export LD_LIBRARY_PATH=$$NETCDFF/lib:$$NETCDF_C/lib:$${{LD_LIBRARY_PATH:-}}
-            export JASPERLIB={params.jasper_dir}/lib
-            export JASPERINC={params.jasper_dir}/include
-            export WRF_DIR={params.wrf_dir}
-            
-            # 2. Configue WPS with selected options (GRIB2 enabled)
-            cd {params.src_dir}
-            ./clean -a > /dev/null 2>&1
-            echo "{params.config_option}" | ./configure
-        "
-        """
-
-# -----------------------------------------------------------------------------
-# RULE 4: Final compilation of the geographic and meteorological binaries
-# -----------------------------------------------------------------------------
-rule compile_wps:
-    """Launch the WPS make and check the success of the 3 main executables."""
-    input:
-        make_config = os.path.join(WPS_SRC_DIR, "configure.wps")
-    output:
-        geogrid = os.path.join(WPS_SRC_DIR, "geogrid.exe"),
-        ungrib = os.path.join(WPS_SRC_DIR, "ungrib.exe"),
-        metgrid = os.path.join(WPS_SRC_DIR, "metgrid.exe"),
-        final_flag = f"logs/wps_installation_{WPS_VERSION}.done"
-    log:
-        "logs/compile_wps.log"
-    threads: 8
-    params:
-        **EESSI_ENV_PARAMS,
-        src_dir = lambda wildcards, output: os.path.dirname(output.geogrid),
-        jasper_dir = JASPER_DIR
-    shell:
-        """
-        PIXI_BIN_DIR=$(pwd)/.pixi/envs/default/bin
-
-        # Clean sub-shell inheriting PATH for compiler calls
-        env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
-            exec >> {log} 2>&1
-
-            source {params.eessi_init}
-            module load {params.wrf_module}
-
-            # Pass the defined number of {threads} for WRF/WPS compilation
-            export J={threads}
-
-            # OpenBLAS can cause issues with WPS compilation, so we set it to use a single thread
-            export OPENBLAS_NUM_THREADS=1
-
-            export LD_LIBRARY_PATH=$$NETCDFF/lib:$$NETCDF_C/lib:{params.jasper_dir}/lib:$${{LD_LIBRARY_PATH:-}}
-            export JASPERLIB={params.jasper_dir}/lib
-            export JASPERINC={params.jasper_dir}/include
-            export WRF_DIR={params.wrf_dir}
-
-            cd {params.src_dir}
-            tcsh ./compile
-            
-            # Validate the physical success and sign the pipeline
-            if [ -f "geogrid.exe" ] && [ -f "ungrib.exe" ] && [ -f "metgrid.exe" ]; then
-                touch ../../{output.final_flag}
-            else
-                echo "Error: Compilation failed. Check logs/compile_wps.log" >&2
-                exit 1
-            fi
-        "
+        # Generate the execution proof marker token to let Snakemake satisfy downstream dependencies
+        mkdir -p $(dirname {output.marker})
+        touch {output.marker}
         """
