@@ -31,6 +31,7 @@ rule compile_wps_hpc:
         echo "[Snakemake] Targeting HPC Environment via EESSI..."
 
         # 1. Initialize EESSI stack via the parameterized initialization script
+        set +u
         if [ -f "{EESSI_INIT}" ]; then
             source {EESSI_INIT}
         else
@@ -40,6 +41,7 @@ rule compile_wps_hpc:
         
         # 2. Load the official extension tool which safely configures EasyBuild on top of EESSI
         module load EESSI-extend
+        set -u
 
         # 3. Export Git parameters into the environment for EasyBuild to read them
         export WPS_GIT_REPO="{WPS_GIT_REPO}"
