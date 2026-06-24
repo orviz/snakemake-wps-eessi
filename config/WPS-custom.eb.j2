@@ -1,33 +1,24 @@
 # config/WPS-custom.eb.j2
-import os
-
 name = 'WPS'
-version = '{{ wps_version }}' # Recibe 'v4.6.0' del config.yaml
+version = '{{ wps_version }}'
 
 homepage = 'https://ucar.edu'
-description = "WPS compiled via official GitHub release tarball with strict SHA256 validation."
+description = "Skeleton for custom manual compilation over EESSI toolchain."
 
 toolchain = {'name': 'foss', 'version': '2024a'}
 toolchainopts = {'opt': True}
 
-# =========================================================================
-# OFFICIAL RELEASE TARBALL DOWNLOAD 
-# =========================================================================
 source_urls = ['{{ wps_git_repo }}/archive/refs/tags/']
 sources = ['%s.tar.gz' % version]
 checksums = ['{{ wps_git_sha256 }}']
 
-# Descompresión plana directa en la raíz de instalación
-buildinsubdir = True
+# Descompresión plana estándar
+buildinsubdir = False
 unpack_options = '--strip-components=1'
-
-# Variables locales de Python para el sufijo de dependencias de EESSI
-build_type = "dmpar"
-versionsuffix = '-%s' % build_type
 
 builddependencies = [('Perl', '5.38.2')]
 dependencies = [
-    ('WRF', '4.6.1', versionsuffix),
+    ('WRF', '4.6.1', '-dmpar'),
     ('JasPer', '4.2.4'),
     ('netCDF', '4.9.2'),
     ('netCDF-Fortran', '4.6.1'),
@@ -35,40 +26,12 @@ dependencies = [
     ('libpng', '1.6.43'),
 ]
 
-# =========================================================================
-# ANULAMOS FASES PARA EVITAR LIMPIEZAS DE MEMORIA DE EASYBUILD
-# =========================================================================
-easyblock = 'MakeCp'
+# Dejamos las fases vacías para que EasyBuild no intente automatizar nada
 configopts = 'true'
-prebuildopts = ''
+buildopts = 'true'
 
-# =========================================================================
-# ATOMIC OPERATIONAL COMMAND (Bypass definitivo de 'Do configure first')
-# =========================================================================
-# Forzamos a que todo ocurra estrictamente en el mismo subproceso de Bash.
-# Al no haber saltos de fase, el archivo configure.wps persiste al compilar.
-build_cmd = 'echo "3" | ./configure && ' \
-            'export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:$EBROOTJASPER/lib:$EBROOTJASPER/lib64:${LD_LIBRARY_PATH:-} && ' \
-            'export NETCDF=$NETCDFF NETCDF_DIR=$NETCDFF && ' \
-            'export JASPERLIB=$EBROOTJASPER/lib JASPERINC=$EBROOTJASPER/include && ' \
-            'export WRF_EXTRA_LIBS="-lnetcdff -lnetcdf -ljasper -lpng -lz" && ' \
-            'csh ./compile'
-
-# =========================================================================
-# STEP 3: NATIVE MAKECP FILE COPIER (Persistencia en bin/)
-# =========================================================================
-files_to_copy = [
-    (['geogrid.exe', 'metgrid.exe', 'ungrib.exe'], 'bin'),
-    'util',
-    'namelist.wps',
-]
-
-# =========================================================================
-# STEP 4: SANITY CHECK PATHS (Validación de arquitectura estándar)
-# =========================================================================
 sanity_check_paths = {
-    'files': ['bin/geogrid.exe', 'bin/metgrid.exe', 'bin/ungrib.exe'],
-    'dirs': ['util']
+    'files': [],
+    'dirs': []
 }
-
 moduleclass = 'geo'

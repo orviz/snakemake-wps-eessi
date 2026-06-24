@@ -1,89 +1,61 @@
 # workflow/Snakefile
 import os
-from jinja2 import Template
+import hashlib
 
-# Cargar el archivo de configuración definido por el usuario
 configfile: "config/config.yaml"
 
 # --- 1. VALIDACIÓN ESTRICTA ---
-required_keys = ["wps_git_repo", "wps_version", "wps_git_sha256"]
+required_keys = ["wps_git_repo", "wps_version", "wps_git_sha256", "eessi_init_script"]
 for key in required_keys:
     if key not in config or not config[key]:
         raise KeyError(f"\n❌ [Snakemake Error]: Falta '{key}' en config.yaml.\n")
 
-# --- 2. EXTRACCIÓN GLOBAL DE VARIABLES ---
 WPS_REPO    = config["wps_git_repo"]
 WPS_VERSION = config["wps_version"]  
 WPS_SHA256  = config["wps_git_sha256"]
-
-EESSI_INIT      = config.get("eessi_init_script", "/cvmfs/software.eessi.io/versions/latest/init/bash")
-WPS_EB_TEMPLATE = config.get("wps_easyconfig_path", "config/WPS-custom.eb.j2")
-GENERATED_EB    = f"config/WPS-{WPS_VERSION}-custom.eb"
+EESSI_INIT  = config["eessi_init_script"]
 
 rule all:
     input:
         "bin/wps_compilation.done"
 
 # =========================================================================
-# REGLA 1 (LIGERA): Renderizado de la receta mediante Jinja2
+# REGLA ÚNICA: Control de ciclo de vida desacoplado mediante script
 # =========================================================================
-rule render_wps_easyconfig:
-    input:
-        eb_template = WPS_EB_TEMPLATE
-    output:
-        eb_real = GENERATED_EB
-    params:
-        repo   = WPS_REPO,
-        tag    = WPS_VERSION,
-        sha256 = WPS_SHA256
-    run:
-        with open(input.eb_template, "r") as f:
-            template_content = f.read()
-            
-        template = Template(template_content)
-        rendered_content = template.render(
-            wps_git_repo=params.repo,
-            wps_version=params.tag,
-            wps_git_sha256=params.sha256
-        )
-        
-        with open(output.eb_real, "w") as f:
-            f.write(rendered_content)
-
-# =========================================================================
-# REGLA 2 (PESADA): Ejecución de la compilación en las rutas por defecto
-# =========================================================================
-# workflow/Snakefile (Regla 2 final simplificada para MakeCp)
 rule compile_wps_hpc:
-    input:
-        eb_recipe = GENERATED_EB
     output:
-        marker = "bin/wps_compilation.done"
+        tarball = f"sources/WPS-{WPS_VERSION}.tar.gz",
+        marker  = "bin/wps_compilation.done"
     params:
-        recipe_abs = os.path.abspath(GENERATED_EB),
+        url        = f"{WPS_REPO}/archive/refs/tags/{WPS_VERSION}.tar.gz",
+        sha256     = WPS_SHA256,
+        target_dir = os.path.abspath(f"software/WPS-{WPS_VERSION}"),
         marker_abs = os.path.abspath("bin/wps_compilation.done"),
-        marker_dir = os.path.abspath("bin")
+        marker_dir = os.path.abspath("bin"),
+        eessi_init = EESSI_INIT
     threads: 8
-    shell:
-        """
-        # BYPASS LMOD ERROR: Entorno limpio delegando la lógica en la receta unificada
-        env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
-            set +u
-            source {EESSI_INIT}
-            module load EESSI-extend
-            set -u
-
-            # Mitigación de memoria para Zen3
-            export OPENBLAS_NUM_THREADS=1
-            export FLEXIBLAS_NUM_THREADS=1
-            export MKL_NUM_THREADS=1
-            ulimit -s unlimited
-
-            echo '[Snakemake] Deploying WPS {WPS_VERSION} via universal MakeCp blocks...'
-            
-            eb '{params.recipe_abs}' --robot --local-var-naming-check=warn --skip-test-step && \
-            mkdir -p '{params.marker_dir}' && \
-            touch '{params.marker_abs}' && \
-            echo '[Snakemake Success] WPS successfully deployed!'
-        "
-        """
+    run:
+        # --- ETAPA A: DESCARGA NATIVA ---
+        print(f"[Snakemake] Downloading official Tarball upstream: {params.url}")
+        os.makedirs("sources", exist_ok=True)
+        shell(f"wget -q -O {output.tarball} {params.url}")
+        
+        # --- ETAPA B: VALIDACIÓN ESTRICTA SHA256 DE SEGURIDAD ---
+        print("[Snakemake] Verifying SHA256 checksum...")
+        sha256_hash = hashlib.sha256()
+        with open(output.tarball, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        computed_sha = sha256_hash.hexdigest()
+        
+        if computed_sha != params.sha256:
+            raise ValueError(f"\n❌ [Security Error]: Checksum Mismatch!\n")
+        print(" [OK] Checksum verified successfully!")
+        
+        # --- ETAPA C: DESCOMPRESIÓN Y DELEGACIÓN EN SCRIPT ---
+        print(f"[Snakemake] Unpacking source code into local environment...")
+        os.makedirs(params.target_dir, exist_ok=True)
+        shell(f"tar -xzf {output.tarball} --strip-components=1 -C {params.target_dir}")
+        
+        print("[Snakemake] Launching decoupled compilation script...")
+        shell(f"workflow/compile_wps.sh '{params.eessi_init}' '{params.target_dir}' '{params.marker_dir}' '{params.marker_abs}'")
