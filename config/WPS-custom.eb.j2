@@ -2,7 +2,7 @@
 import os
 
 name = 'WPS'
-version = '{{ wps_version }}' # Recibe 'v4.6.0' puro del config.yaml
+version = '{{ wps_version }}' # Recibe 'v4.6.0' del config.yaml
 
 homepage = 'https://ucar.edu'
 description = "WPS compiled via official GitHub release tarball with strict SHA256 validation."
@@ -11,19 +11,20 @@ toolchain = {'name': 'foss', 'version': '2024a'}
 toolchainopts = {'opt': True}
 
 # =========================================================================
-# OFFICIAL RELEASE TARBALL DOWNLOAD (Pure Upstream Versioning)
+# OFFICIAL RELEASE TARBALL DOWNLOAD 
 # =========================================================================
 source_urls = ['{{ wps_git_repo }}/archive/refs/tags/']
-sources = ['%s.tar.gz' % version] 
+sources = ['%s.tar.gz' % version]
 checksums = ['{{ wps_git_sha256 }}']
 
-# TRUCO NATIVO DE EB: Como version tiene la 'v' (v4.6.0) pero el tarball de GitHub 
-# se descomprime sin la 'v' (WPS-4.6.0), le indicamos a EasyBuild la ruta física exacta
+# Descompresión plana directa en la raíz de instalación
 buildinsubdir = True
 unpack_options = '--strip-components=1'
 
-buildtype = "dmpar"
-versionsuffix = '-%s' % buildtype
+# Variables locales de Python para el sufijo de dependencias de EESSI
+build_type = "dmpar"
+versionsuffix = '-%s' % build_type
+
 builddependencies = [('Perl', '5.38.2')]
 dependencies = [
     ('WRF', '4.6.1', versionsuffix),
@@ -35,32 +36,39 @@ dependencies = [
 ]
 
 # =========================================================================
-# UNIVERSAL NETCDF & JASPER BRIDGE INJECTION
+# ANULAMOS FASES PARA EVITAR LIMPIEZAS DE MEMORIA DE EASYBUILD
 # =========================================================================
-prebuildopts = 'export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:$EBROOTJASPER/lib:$EBROOTJASPER/lib64:${LD_LIBRARY_PATH:-} && ' \
-               'export NETCDF=$NETCDFF NETCDF_DIR=$NETCDFF && ' \
-               'export JASPERLIB=$EBROOTJASPER/lib JASPERINC=$EBROOTJASPER/include && ' \
-               'export WRF_EXTRA_LIBS="-lnetcdff -lnetcdf -ljasper -lpng -lz" && '
+easyblock = 'MakeCp'
+configopts = 'true'
+prebuildopts = ''
 
 # =========================================================================
-# MANDATORY INSTALL OPTIONS (Fixes EasyBuild RPATH and Non-existing bin/ bug)
+# ATOMIC OPERATIONAL COMMAND (Bypass definitivo de 'Do configure first')
 # =========================================================================
-# Obligamos a EasyBuild a crear la carpeta bin/ y estructurar los ejecutables
-# para que el RPATH Sanity Check de EESSI los localice de forma estándar.
-installopts = 'mkdir -p %(installdir)s/bin && ' \
-              'cp %(builddir)s/WPS-%(version)s/*.exe %(installdir)s/bin/ 2>/dev/null || ' \
-              'cp %(installdir)s/*.exe %(installdir)s/bin/ 2>/dev/null || true && ' \
-              'cp %(installdir)s/util/src/*.exe %(installdir)s/bin/ 2>/dev/null || true && ' \
-              'cp -r util %(installdir)s/'
+# Forzamos a que todo ocurra estrictamente en el mismo subproceso de Bash.
+# Al no haber saltos de fase, el archivo configure.wps persiste al compilar.
+build_cmd = 'echo "3" | ./configure && ' \
+            'export LD_LIBRARY_PATH=$NETCDFF/lib:$NETCDF_C/lib:$EBROOTJASPER/lib:$EBROOTJASPER/lib64:${LD_LIBRARY_PATH:-} && ' \
+            'export NETCDF=$NETCDFF NETCDF_DIR=$NETCDFF && ' \
+            'export JASPERLIB=$EBROOTJASPER/lib JASPERINC=$EBROOTJASPER/include && ' \
+            'export WRF_EXTRA_LIBS="-lnetcdff -lnetcdf -ljasper -lpng -lz" && ' \
+            'csh ./compile'
 
 # =========================================================================
-# RIGOROUS GENERIC SANITY CHECK PATHS
+# STEP 3: NATIVE MAKECP FILE COPIER (Persistencia en bin/)
 # =========================================================================
-# cleanup_builddir = False
+files_to_copy = [
+    (['geogrid.exe', 'metgrid.exe', 'ungrib.exe'], 'bin'),
+    'util',
+    'namelist.wps',
+]
+
+# =========================================================================
+# STEP 4: SANITY CHECK PATHS (Validación de arquitectura estándar)
+# =========================================================================
 sanity_check_paths = {
     'files': ['bin/geogrid.exe', 'bin/metgrid.exe', 'bin/ungrib.exe'],
     'dirs': ['util']
 }
 
 moduleclass = 'geo'
-

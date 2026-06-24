@@ -53,6 +53,7 @@ rule render_wps_easyconfig:
 # =========================================================================
 # REGLA 2 (PESADA): Ejecución de la compilación en las rutas por defecto
 # =========================================================================
+# workflow/Snakefile (Regla 2 final simplificada para MakeCp)
 rule compile_wps_hpc:
     input:
         eb_recipe = GENERATED_EB
@@ -65,7 +66,7 @@ rule compile_wps_hpc:
     threads: 8
     shell:
         """
-        # BYPASS LMOD ERROR: Llamada plana ultra-limpia delegando el entorno en la receta .eb
+        # BYPASS LMOD ERROR: Entorno limpio delegando la lógica en la receta unificada
         env -i HOME=$HOME TERM=$TERM PATH=/usr/bin:/bin:/usr/local/bin:$PATH /usr/bin/bash -c "
             set +u
             source {EESSI_INIT}
@@ -78,12 +79,11 @@ rule compile_wps_hpc:
             export MKL_NUM_THREADS=1
             ulimit -s unlimited
 
-            echo '[Snakemake] Deploying WPS {WPS_VERSION} via native EESSI modules...'
+            echo '[Snakemake] Deploying WPS {WPS_VERSION} via universal MakeCp blocks...'
             
-            # Comando nativo plano e indestructible
             eb '{params.recipe_abs}' --robot --local-var-naming-check=warn --skip-test-step && \
             mkdir -p '{params.marker_dir}' && \
             touch '{params.marker_abs}' && \
-            echo '[Snakemake Success] WPS successfully compiled over EESSI!'
+            echo '[Snakemake Success] WPS successfully deployed!'
         "
         """
