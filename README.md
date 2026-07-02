@@ -51,11 +51,17 @@ snakemake-wps-eessi/
 │           └── config.yaml
 └── workflow/
     └── Snakefile            # Granular rule execution dependency graph (DAG)
+    └── audit_eessi.sh       # EESSI + EasyBuild: audits EESSI environment to decide whether compile from official EB config & patches (EESSI_OFFICIAL) or local (FALLBACK_LOCAL)
 ```
 
 ---
 
-## Execution & Deployment Guide
+## Workflow explanation
+### Step 1: EESSI environment audit (`workflow/audit_eessi.sh`)
+- If status is `EESSI_OFFICIAL`: EasyBuild uses native recipe (WPS-4.6.0-foss-2024a-dmpar.eb).
+- If status is `FALLBACK_LOCAL`: EasyBuild uses local configuration file and (if any) associated patches (from `./config`).
+
+## Execution & Deployment Guide (**OLD**)
 
 ### 1. Match your Target EESSI Mount Paths
 Open `config/config.yaml` and verify that the CVMFS initialization path and targeted WRF folder match the architecture of your specific HPC cluster:
