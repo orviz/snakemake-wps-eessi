@@ -10,8 +10,8 @@ TC_SUFFIX   = config["toolchain_suffix"]
 
 rule all:
     input:
-        "bin/WPS_compilation.done",
-        "bin/WRF_compilation.done"
+        "bin/ungrib.exe",
+        "bin/wrf.exe"
 
 # =========================================================================
 # REGLA 1: Auditoría Dinámica del Estado Central de EESSI via eb -S
@@ -35,25 +35,36 @@ rule audit_eessi_status:
         """
 
 # =========================================================================
-# REGLA 2: Compilación Inteligente Automática (Modo Oficial / Fallback Local)
+# REGLA 2: Compilación Inteligente y Generación de Links Locales Planos
 # =========================================================================
 rule compile_software_via_eb:
     input:
-        status_json = "audit/{software}_status.json"
+        # Usamos strings fijos en lugar de funciones lambda para que Snakemake no se confunda
+        wps_json = "audit/WPS_status.json",
+        wrf_json = "audit/WRF_status.json"
     output:
-        marker = "bin/{software}_compilation.done"
+        real_binary = "bin/{executable}.exe"
+    wildcard_constraints:
+        executable = "ungrib|wrf"
     params:
-        eessi_init = EESSI_INIT,
-        # Ruta de la receta local de contingencia en tu carpeta config/ por si hiciera falta
-        local_recipe = lambda wildcards: os.path.abspath(f"config/{wildcards.software}-{WPS_VER if wildcards.software == 'WPS' else WRF_VER}{TC_SUFFIX}.eb"),
+        eessi_init   = EESSI_INIT,
+        # Renombramos la clave a 'sw_name' para evitar el conflicto de Wildcard
+        sw_name      = lambda wildcards: "WPS" if wildcards.executable == "ungrib" else "WRF",
+        local_recipe = lambda wildcards: os.path.abspath(f"config/{'WPS' if wildcards.executable == 'ungrib' else 'WRF'}-{WPS_VER if wildcards.executable == 'ungrib' else WRF_VER}{TC_SUFFIX}.eb"),
         marker_dir   = os.path.abspath("bin"),
-        marker_abs   = lambda wildcards, output: os.path.abspath(output.marker)
+        marker_abs   = lambda wildcards, output: os.path.abspath(output.real_binary)
     threads: 8
     shell:
         """
+        # Pasamos dinámicamente si la regla activa WPS o WRF leyendo el JSON correcto
+        STATUS_JSON="audit/WPS_status.json"
+        if [ "{wildcards.executable}" == "wrf" ]; then
+            STATUS_JSON="audit/WRF_status.json"
+        fi
+
         workflow/compile_eb.sh \
             '{params.eessi_init}' \
-            '{input.status_json}' \
+            "$STATUS_JSON" \
             '{params.local_recipe}' \
             '{params.marker_dir}' \
             '{params.marker_abs}'
