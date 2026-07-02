@@ -57,9 +57,21 @@ snakemake-wps-eessi/
 ---
 
 ## Workflow explanation
+
 ### Step 1: EESSI environment audit (`workflow/audit_eessi.sh`)
 - If status is `EESSI_OFFICIAL`: EasyBuild uses native recipe (WPS-4.6.0-foss-2024a-dmpar.eb).
 - If status is `FALLBACK_LOCAL`: EasyBuild uses local configuration file and (if any) associated patches (from `./config`).
+
+The script creates a JSON file with the required information to be processed by the subsequent script.
+
+### Step 2: Compilation (`workflow/compile_eb.sh`)
+Runs EasyBuild in accordance with the JSON data resulting from the audit phase.
+
+Notes:
+- Variables `*_NUM_THREADS=1`: required for Snakemake
+    - Unlike a EasyBuild compilation within the shell, where EasyBuild reads `toolchainopts = {'opt': True}` directive and configures natively the right number of threads, Snakemake might allow OpenBLAS, FlexiBLAS o MKL to use as many threads as logic cores AMD Zen3 processor has available, thus causing oversubscription &rarr; **TO CHECK** 
+- `ulimit -s unlimited` allows Snakemake processes that use clean sub-shell to potentially avoid low stack size values.
+
 
 ## Execution & Deployment Guide (**OLD**)
 
